@@ -1,0 +1,21 @@
+# Security
+.env
+.env.local
+*.key
+secrets.json
+
+# Python / Virtual Environment
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# IDE Settings (Optional)
+.vscode/
+.idea/
+*.swp
+
+# OS generated files
+.DS_Store
+Thumbs.db
