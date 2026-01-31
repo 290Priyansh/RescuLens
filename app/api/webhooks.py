@@ -43,42 +43,85 @@ async def handle_sms(Body: str = Form(...), From: str = Form(...)):
     
     return Response(content=str(resp), media_type="application/xml")
 
+import os
+import requests
+from openai import OpenAI
+from app.core.config import settings
+
+client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
 @router.post("/webhooks/voice")
 async def handle_voice(From: str = Form(...)):
     """
-    Handle incoming Voice call. Records the call.
+    Handle incoming Voice call. Records the call and sends for local transcription.
     """
     resp = VoiceResponse()
-    resp.say("This is RescuLens 911. Please state your emergency after the beep.")
+    resp.say("This is RescuLens 911. Please state your emergency after the beep. We are listening.")
     
-    # Record the user's response and send to transcription webhook
-    # Note: In a real deployment, the transcription endpoint must be publicly accessible (e.g. via ngrok)
+    # Record the user's response
+    # action: Twilio will POST to this URL when recording ends (silence or hangup)
     resp.record(
-        transcribe=True,
-        transcribeCallback="/webhooks/transcription",
-        maxLength=30,
-        playBeep=True
+        action="/webhooks/process_recording",
+        max_length=60,
+        play_beep=True
     )
     
     return Response(content=str(resp), media_type="application/xml")
 
-@router.post("/webhooks/transcription")
-async def handle_transcription(TranscriptionText: str = Form(...), From: str = Form(...)):
+@router.post("/webhooks/process_recording")
+async def handle_recording(RecordingUrl: str = Form(...), From: str = Form(...)):
     """
-    Handle transcription callback.
+    Download recording -> Whisper -> NLP -> Triage
     """
-    transcript = TranscriptionText.strip()
-    if not transcript:
-        return
+    print(f"Processing recording from: {RecordingUrl}")
+    resp = MessagingResponse()
+    
+    # 1. Download the Audio File
+    # Twilio recordings are private by default, so we need to auth
+    try:
+        audio_response = requests.get(
+            RecordingUrl, # + ".mp3" sometimes helps if default is wav
+            auth=(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        )
+        audio_response.raise_for_status()
         
-    extracted = extract_medical_entities(transcript)
-    normalized = normalize_entities(extracted["entities"])
-    triage_result = triage(normalized["symptoms"])
+        # Save to temp file
+        filename = f"temp_recording_{From.strip('+')}.wav"
+        with open(filename, "wb") as f:
+            f.write(audio_response.content)
+            
+        # 2. Send to Whisper
+        with open(filename, "rb") as audio_file:
+            transcript_response = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file,
+                prompt="Panic, emergency, medical context, ambulance, help"
+            )
+        
+        transcript = transcript_response.text
+        print(f"Whisper Transcript: {transcript}")
+        
+        # 3. Process Incident
+        extracted = extract_medical_entities(transcript)
+        normalized = normalize_entities(extracted["entities"])
+        triage_result = triage(normalized["symptoms"])
+        
+        create_incident(
+            input_text=transcript,
+            symptoms=normalized["symptoms"],
+            triage_result=triage_result
+        )
+
+        # Cleanup
+        os.remove(filename)
+
+    except Exception as e:
+        print(f"Error processing recording: {e}")
+        # In a real app, we'd queue a retry or alert an admin
+        return Response(status_code=500)
     
-    create_incident(
-        input_text=transcript,
-        symptoms=normalized["symptoms"],
-        triage_result=triage_result
-    )
-    
-    return {"status": "processed"}
+    # We don't usually reply voice-to-voice here immediately because the caller might have hung up.
+    # But if they are still on the line, we could say "Help is on the way".
+    # For now, we just return empty 200 OK to acknowledge receipt.
+    return {"status": "processed"} 
+
