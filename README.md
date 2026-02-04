@@ -45,7 +45,7 @@
 ### Prerequisites
 - Python 3.10+
 - Node.js & npm
-- [Twilio Account](https://www.twilio.com/) (for voice testing)
+- [Twilio Account](https://www.twilio.com/) 
 - [OpenAI API Key](https://platform.openai.com/)
 
 ### 1. Clone the Repository
