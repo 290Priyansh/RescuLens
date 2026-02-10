@@ -140,3 +140,7 @@ RescuLens/
 [Khushi Gupta](https://github.com/kg7825881) - Frontend & Design
 
 Built with ❤️ for the VITB-JHU Health-Hack 2025.
+
+<img src="https://github.com/user-attachments/assets/bf7c8874-9a2b-4bd5-a98a-2ace4105d687" width="400" height="600">
+
+
